@@ -1,0 +1,59 @@
+# name: Pipeline CI/CD
+
+# on:
+#   push:
+#     branches:
+#       - main
+
+# permissions:
+#   id-token: write
+#   contents: read
+
+# jobs:
+#   job1:
+#     name: build_ecr
+#     runs-on: ubuntu-latest
+#     steps:
+#       - name: Checkout
+#         uses: actions/checkout@v5.0.0
+
+#       - name: "Configure AWS Credentials" 
+#         uses: aws-actions/configure-aws-credentials@v4.3.1
+#         with:
+#           role-to-assume: arn:aws:iam::<ID_CONTA_AWS>:role/GitHubActionsRepoApp
+#           aws-region: <REGIAO>
+
+#       - name: Amazon ECR "Login" Action for GitHub Actions
+#         uses: aws-actions/amazon-ecr-login@v2.0.1
+      
+#       - name: Build, Tag, and Push image to Amazon ECR
+#         run: |
+#           docker build -t meu-website:v1.0 .
+#           docker tag meu-website:v1.0 <ID_CONTA_AWS>.dkr.ecr.<REGIAO>.amazonaws.com/site_prod:v1.0
+#           docker push <ID_CONTA_AWS>.dkr.ecr.<REGIAO>.amazonaws.com/site_prod:v1.0
+
+#   job2:
+#     name: deploy_ec2
+#     needs: job1
+#     env:
+#       INSTANCE_KEY: ${{secrets.INSTANCE_KEY}}
+#       PUBLIC_IP: ${{secrets.PUBLIC_IP}}
+#     runs-on: ubuntu-latest
+#     steps:
+#      - name: Deploy EC2 SSH
+#        run: |
+#           echo "$INSTANCE_KEY" > chave-site.pem
+#           chmod 400 chave-site.pem
+#           ssh -i chave-site.pem -o StrictHostKeyChecking=no ec2-user@$PUBLIC_IP << EOF
+#             aws ecr get-login-password --region <REGIAO> | docker login --username AWS --password-stdin <ID_CONTA_AWS>.dkr.ecr.<REGIAO>.amazonaws.com
+#             docker pull <ID_CONTA_AWS>.dkr.ecr.<REGIAO>.amazonaws.com/site_prod:v1.0
+#             echo "parando container antigo site"
+#             docker stop site || true
+#             echo "removendo container antigo site"
+#             docker rm site || true
+#             echo "rodando nova tag da imagem"
+#             docker run -d -p 80:80 --name site <ID_CONTA_AWS>.dkr.ecr.<REGIAO>.amazonaws.com/site_prod:v1.0
+#             echo "Parabéns! Imagem foi atualizada!"
+#             docker ps
+#           EOF
+#           rm chave-site.pem

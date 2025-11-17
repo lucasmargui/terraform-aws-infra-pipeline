@@ -1,0 +1,72 @@
+# name: Pipeline CI/CD
+
+# on:
+#   push:
+#     branches:
+#       - main
+# permissions:
+#   contents: read
+#   id-token: write
+
+# jobs:
+#   build-ecr:
+#     runs-on: ubuntu-latest
+#     outputs:
+#       registry: ${{ steps.login-ecr.outputs.registry }}
+#       image_tag: ${{ steps.build.outputs.image_tag }}
+#       image_uri: ${{ steps.build.outputs.image_uri }}
+#     steps:
+#       - uses: actions/checkout@v5.0.0
+
+#       - name: Configure AWS Credentials
+#         uses: aws-actions/configure-aws-credentials@v4.3.1
+#         with:
+#           role-to-assume: arn:aws:iam::<ACCOUNT_ID>:role/gitHubActionsECR
+#           aws-region: us-east-2
+
+#       - name: Login to Amazon ECR
+#         id: login-ecr
+#         uses: aws-actions/amazon-ecr-login@v2
+
+#       - name: Build, tag, and push docker image to Amazon ECR
+#         id: build
+#         env:
+#           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+#           REPOSITORY: site_prod
+#           ENVIRONMENT: ${{ github.ref_name == 'main' && 'prod' || 'dev' }}
+#         run: |
+#           COMMIT_SHA=$(echo $GITHUB_SHA | cut -c1-7)
+#           IMAGE_TAG=${ENVIRONMENT}-${COMMIT_SHA}
+#           docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
+#           docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+#           echo "image_tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+#           echo "image_uri=$REGISTRY/$REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+#   deploy-ssh:
+#     runs-on: ubuntu-latest
+#     needs: build-ecr
+#     steps:
+#       - name: Deploy to EC2 via SSH
+#         env:
+#           IMAGE_TAG: ${{ needs.build-ecr.outputs.image_tag }}
+#           IMAGE_URI: ${{ needs.build-ecr.outputs.image_uri }}
+#           REGISTRY: ${{ needs.build-ecr.outputs.registry }}
+#           INSTANCE_KEY: ${{ secrets.INSTANCE_KEY }}
+#           ELASTIC_IP: ${{ secrets.ELASTIC_IP }}
+#         run: |
+#           echo $IMAGE_URI
+#           echo "$INSTANCE_KEY" > key.pem
+#           chmod 400 key.pem
+#           ssh -i key.pem -o StrictHostKeyChecking=no ec2-user@$ELASTIC_IP << EOF
+#             aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin $REGISTRY
+#             echo "baixando imagem $IMAGE_TAG"
+#             docker pull $IMAGE_URI
+#             echo "parando container antigo e iniciando novo"
+#             docker stop site || true
+#             docker rm site || true
+#             echo "iniciando container novo com a imagem $IMAGE_TAG"
+#             docker run -d -p 80:80 --name site $IMAGE_URI
+#             docker ps
+#             echo "deploy finalizado"
+#           EOF
+#           rm key.pem
